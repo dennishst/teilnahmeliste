@@ -3,6 +3,17 @@
      Alle Fehler behoben, React 18 kompatibel
      ======================================== -->
 
+<style>
+  /* Pull-to-Refresh auf iOS/iPad deaktivieren wenn Daten vorhanden */
+  html.block-pull-refresh {
+    overscroll-behavior-y: none;
+  }
+  body.block-pull-refresh {
+    overscroll-behavior-y: none;
+    overflow: hidden;
+  }
+</style>
+
 <div id="makerport-teilnehmerliste-app"></div>
 
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -43,20 +54,65 @@
         const [editingId, setEditingId]               = useState(null);   // FIX: ID statt Index
         const [newParticipant, setNewParticipant]     = useState(emptyForm());
         const [editingParticipant, setEditingParticipant] = useState(emptyForm());
+        const [showRefreshWarning, setShowRefreshWarning] = useState(false);
 
         const canvasRef   = useRef(null);
         const fileInputRef = useRef(null);
 
-        // ── Schutz vor versehentlichem Schliessen ─────────────────────────────
+        // ── Schutz vor versehentlichem Schliessen / Refresh ─────────────────
         useEffect(() => {
+            // Standard-Browser (Desktop)
             const handleBeforeUnload = (e) => {
                 if (participants.length > 0) {
                     e.preventDefault();
                     e.returnValue = 'Sie haben ungespeicherte Daten. Möchten Sie die Seite wirklich verlassen?';
                 }
             };
+            // Touch-Geräte: Tastatur-Shortcuts & Hardware-Buttons abfangen
+            const handleKeyDown = (e) => {
+                if (participants.length > 0) {
+                    // F5 oder Ctrl/Cmd+R
+                    if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && e.key === 'r')) {
+                        e.preventDefault();
+                        setShowRefreshWarning(true);
+                    }
+                }
+            };
+            // Pull-to-Refresh auf iOS blockieren
+            let lastTouchY = 0;
+            const handleTouchStart = (e) => {
+                lastTouchY = e.touches[0].clientY;
+            };
+            const handleTouchMove = (e) => {
+                if (participants.length > 0) {
+                    const touchY = e.touches[0].clientY;
+                    const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+                    if (scrollTop === 0 && touchY > lastTouchY) {
+                        e.preventDefault();
+                        setShowRefreshWarning(true);
+                    }
+                }
+            };
+
             window.addEventListener('beforeunload', handleBeforeUnload);
-            return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+            window.addEventListener('keydown', handleKeyDown);
+            document.addEventListener('touchstart', handleTouchStart, { passive: true });
+            document.addEventListener('touchmove', handleTouchMove, { passive: false });
+
+            if (participants.length > 0) {
+                document.documentElement.classList.add('block-pull-refresh');
+                document.body.classList.add('block-pull-refresh');
+            } else {
+                document.documentElement.classList.remove('block-pull-refresh');
+                document.body.classList.remove('block-pull-refresh');
+            }
+
+            return () => {
+                window.removeEventListener('beforeunload', handleBeforeUnload);
+                window.removeEventListener('keydown', handleKeyDown);
+                document.removeEventListener('touchstart', handleTouchStart);
+                document.removeEventListener('touchmove', handleTouchMove);
+            };
         }, [participants]);
 
         // ── Excel-Upload ──────────────────────────────────────────────────────
@@ -653,6 +709,37 @@
                                     >
                                         <span className="text-xl">✓</span> Speichern
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {/* Refresh-Warnung Modal */}
+                    {showRefreshWarning && (
+                        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-6 z-50">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+                                <div className="p-6 text-center">
+                                    <div className="text-6xl mb-4">⚠️</div>
+                                    <h2 className="text-xl font-bold text-gray-900 mb-3">
+                                        Seite wirklich neu laden?
+                                    </h2>
+                                    <p className="text-gray-600 text-sm mb-6">
+                                        Alle <strong>{participants.length} Teilnehmer</strong> und deren Unterschriften gehen dabei <strong>unwiderruflich verloren</strong>!
+                                    </p>
+                                    <div className="flex flex-col gap-3">
+                                        <button
+                                            onClick={() => setShowRefreshWarning(false)}
+                                            className="w-full hover:opacity-90 text-white font-bold py-4 px-6 rounded-xl transition-all active:scale-95 text-lg"
+                                            style={{ backgroundColor: '#31b04f' }}
+                                        >
+                                            ✓ Abbrechen – Daten behalten
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowRefreshWarning(false); window.location.reload(); }}
+                                            className="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-6 rounded-xl transition-all active:scale-95"
+                                        >
+                                            🔄 Trotzdem neu laden
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
